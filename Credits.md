@@ -1,0 +1,146 @@
+# Credits
+
+bun-kasa doesn't exist without the two projects below. Every bit of the hard part — reverse
+engineering TP-Link's undocumented protocols, figuring out KLAP and the AES handshakes, mapping
+out what each device family actually supports, chasing down device-specific quirks over years of
+issues and PRs — was already done by the people who built and maintained python-kasa and pytapo.
+This repo just ports that work to TypeScript/Bun. None of it would be possible without them, and
+the people listed below earned every line of it.
+
+See [README.md](README.md#credits) for the per-project breakdown of what was ported from where.
+
+Contributor counts are commit counts reported by the GitHub API as of 2026-07-15, sorted descending.
+
+## python-kasa
+
+[python-kasa/python-kasa](https://github.com/python-kasa/python-kasa) (GPL-3.0) — the core
+Device/Module/Protocol/Transport architecture this whole library is built on. Particular thanks
+to [rytilahti](https://github.com/rytilahti) and [sdb9696](https://github.com/sdb9696), whose
+combined 800+ commits are the overwhelming majority of the project's design and maintenance.
+
+- [rytilahti](https://github.com/rytilahti) (449)
+- [sdb9696](https://github.com/sdb9696) (398)
+- [bdraco](https://github.com/bdraco) (64)
+- [basnijholt](https://github.com/basnijholt) (36)
+- [ZeliardM](https://github.com/ZeliardM) (31)
+- [GadgetReactor](https://github.com/GadgetReactor) (21)
+- [kirichkov](https://github.com/kirichkov) (13)
+- [ryenitcher](https://github.com/ryenitcher) (9)
+- [mweinelt](https://github.com/mweinelt) (6)
+- [gimpy88](https://github.com/gimpy88) (4)
+- [gollo](https://github.com/gollo) (4)
+- [jules43](https://github.com/jules43) (4)
+- [annikajayuk](https://github.com/annikajayuk) (3)
+- [smaggard](https://github.com/smaggard) (3)
+- [gritstub](https://github.com/gritstub) (3)
+- [steveredden](https://github.com/steveredden) (2)
+- [sbytnar](https://github.com/sbytnar) (2)
+- [Puxtril](https://github.com/Puxtril) (2)
+- [Obbay2](https://github.com/Obbay2) (2)
+- [khenriks](https://github.com/khenriks) (2)
+- [HankB](https://github.com/HankB) (2)
+- [Fulch36](https://github.com/Fulch36) (2)
+- [flavio-fernandes](https://github.com/flavio-fernandes) (2)
+- [DawidPietrykowski](https://github.com/DawidPietrykowski) (2)
+- [brianthedavis](https://github.com/brianthedavis) (2)
+- [TheGardenMonkey](https://github.com/TheGardenMonkey) (2)
+- [acmay](https://github.com/acmay) (2)
+- [mrwogu](https://github.com/mrwogu) (1)
+- [scop](https://github.com/scop) (1)
+- [karpach](https://github.com/karpach) (1)
+- [titilambert](https://github.com/titilambert) (1)
+- [peterjgrainger](https://github.com/peterjgrainger) (1)
+- [tempse](https://github.com/tempse) (1)
+- [salbertson](https://github.com/salbertson) (1)
+- [alams154](https://github.com/alams154) (1)
+- [normanr](https://github.com/normanr) (1)
+- [nbrew](https://github.com/nbrew) (1)
+- Matthew Garrett (1)
+- [mlebrun](https://github.com/mlebrun) (1)
+- [markvanpraet](https://github.com/markvanpraet) (1)
+- [LostLuma](https://github.com/LostLuma) (1)
+- [leandroreox](https://github.com/leandroreox) (1)
+- [tripzero](https://github.com/tripzero) (1)
+- [connorproctor](https://github.com/connorproctor) (1)
+- [xinud190](https://github.com/xinud190) (1)
+- [wh1t3f1r3](https://github.com/wh1t3f1r3) (1)
+- [pete1450](https://github.com/pete1450) (1)
+- [mrbetta](https://github.com/mrbetta) (1)
+- [mjbohr](https://github.com/mjbohr) (1)
+- [mdarnol](https://github.com/mdarnol) (1)
+- [kwazel](https://github.com/kwazel) (1)
+- [kochinc](https://github.com/kochinc) (1)
+- [jimboca](https://github.com/jimboca) (1)
+- [ijaron](https://github.com/ijaron) (1)
+- [epg-pers](https://github.com/epg-pers) (1)
+- [dlee1j1](https://github.com/dlee1j1) (1)
+- [dieselrabbit](https://github.com/dieselrabbit) (1)
+- [dependabot[bot]](https://github.com/apps/dependabot) (1)
+- [daleye](https://github.com/daleye) (1)
+- [cobryan05](https://github.com/cobryan05) (1)
+- [alanblake](https://github.com/alanblake) (1)
+- [bmoregeo](https://github.com/bmoregeo) (1)
+- [lschweiss](https://github.com/lschweiss) (1)
+- [clstrickland](https://github.com/clstrickland) (1)
+- [BuongiornoTexas](https://github.com/BuongiornoTexas) (1)
+- [nakanaela](https://github.com/nakanaela) (1)
+- [shifty35](https://github.com/shifty35) (1)
+- [trainman419](https://github.com/trainman419) (1)
+- [aricforrest](https://github.com/aricforrest) (1)
+- [appleguru](https://github.com/appleguru) (1)
+- [fantandrea](https://github.com/fantandrea) (1)
+- [amelchio](https://github.com/amelchio) (1)
+- [kad](https://github.com/kad) (1)
+- [LXGaming](https://github.com/LXGaming) (1)
+- [epicalex](https://github.com/epicalex) (1)
+- [newAM](https://github.com/newAM) (1)
+- [Adriandorr](https://github.com/Adriandorr) (1)
+- [JsChiSurf](https://github.com/JsChiSurf) (1)
+- [JaydenRA](https://github.com/JaydenRA) (1)
+- [jalseth](https://github.com/jalseth) (1)
+- [iprodanovbg](https://github.com/iprodanovbg) (1)
+- [Happy-Cadaver](https://github.com/Happy-Cadaver) (1)
+- [TheLinuxGuy](https://github.com/TheLinuxGuy) (1)
+- Georgi Kirichkov (1)
+- [gpongelli](https://github.com/gpongelli) (1)
+- [felixonmars](https://github.com/felixonmars) (1)
+- [fabaff](https://github.com/fabaff) (1)
+- [GatorEG](https://github.com/GatorEG) (1)
+- [ErikSGross](https://github.com/ErikSGross) (1)
+- [emanueleg](https://github.com/emanueleg) (1)
+- [bluehomewu](https://github.com/bluehomewu) (1)
+- [dmitryelj](https://github.com/dmitryelj) (1)
+- [davidefiocco](https://github.com/davidefiocco) (1)
+- [dberlin](https://github.com/dberlin) (1)
+
+## pytapo
+
+[JurajNyiri/pytapo](https://github.com/JurajNyiri/pytapo) (MIT) — the Tapo-camera RPC surface
+(battery, chime, floodlight, siren, pan/tilt, recordings, and more) that python-kasa's own
+SMARTCAM support doesn't cover. [JurajNyiri](https://github.com/JurajNyiri) built and has
+carried this project for years; the camera features in bun-kasa exist because of that work.
+
+- [JurajNyiri](https://github.com/JurajNyiri) (382)
+- Juraj Nyíri (184)
+- [depau](https://github.com/depau) (23)
+- [marcosngomezi](https://github.com/marcosngomezi) (13)
+- [cavefire](https://github.com/cavefire) (6)
+- [sonic74](https://github.com/sonic74) (5)
+- [vitorsemeano](https://github.com/vitorsemeano) (5)
+- Fredrik Häggbom (4)
+- [rpaskowitz](https://github.com/rpaskowitz) (4)
+- [TassSinclair](https://github.com/TassSinclair) (3)
+- [sbraz](https://github.com/sbraz) (3)
+- [fabaff](https://github.com/fabaff) (3)
+- [iamatulsingh](https://github.com/iamatulsingh) (3)
+- [andrempo](https://github.com/andrempo) (2)
+- [luskaner](https://github.com/luskaner) (2)
+- [rioriost](https://github.com/rioriost) (2)
+- [ramast](https://github.com/ramast) (2)
+- [fightforlife](https://github.com/fightforlife) (1)
+- Joel Trumper (1)
+- Juraj Nyíri (1)
+- [liamjack](https://github.com/liamjack) (1)
+- [MartinPham](https://github.com/MartinPham) (1)
+- [WereCatf](https://github.com/WereCatf) (1)
+- [aandi](https://github.com/aandi) (1)
