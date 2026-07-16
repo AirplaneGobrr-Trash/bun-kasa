@@ -18,185 +18,164 @@ export interface RecordingSearchResult {
   [key: string]: unknown;
 }
 
-declare module "../smartcam/modules/camera.ts" {
-  interface Camera {
-    /** The internal user id playback search calls require. Cached; pass true to refetch. */
-    getUserID(forceReload?: boolean): Promise<string>;
-    /** Which dates (YYYYMMDD, UTC camera-local) have any recordings, in `startDate..endDate`. */
-    getRecordingsList(
-      startDate?: string,
-      endDate?: string,
-    ): Promise<RecordingSearchResult[]>;
-    /** Recording segments between two unix timestamps (seconds). */
-    getRecordingsUTC(
-      startTime: number,
-      endTime: number,
-      startIndex?: number,
-      endIndex?: number,
-    ): Promise<RecordingSearchResult[]>;
-    /** Recording segments for a single date (YYYYMMDD). */
-    getRecordings(
-      date: string,
-      startIndex?: number,
-      endIndex?: number,
-    ): Promise<RecordingSearchResult[]>;
-  }
-}
-
 const DEFAULT_END_INDEX = 999999999;
-const userIdCache = new WeakMap<Camera, string>();
+
+type RawQuery = (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 function today(): string {
   const now = new Date();
   return `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
 }
 
-Camera.prototype.getUserID = async function (
-  this: Camera,
-  forceReload = false,
-): Promise<string> {
-  const cached = userIdCache.get(this);
-  if (cached && !forceReload) return cached;
+export class CameraRecordings {
+  readonly #rawQuery: RawQuery;
+  #userId: string | undefined;
 
-  const resp = await this.smartCamDevice.rawQuery({
-    getUserID: { system: { get_user_id: "null" } },
-  });
-  const userId = (resp.getUserID as Record<string, unknown> | undefined)?.user_id;
-  if (typeof userId !== "string") {
-    throw new Error("Failed to retrieve user ID, device responded with no value.");
+  constructor(rawQuery: RawQuery) {
+    this.#rawQuery = rawQuery;
   }
-  userIdCache.set(this, userId);
-  return userId;
-};
 
-Camera.prototype.getRecordingsList = async function (
-  this: Camera,
-  startDate = "20000101",
-  endDate = today(),
-): Promise<RecordingSearchResult[]> {
-  const resp = await this.smartCamDevice.rawQuery({
-    searchDateWithVideo: {
-      playback: {
-        search_year_utility: { channel: [0], end_date: endDate, start_date: startDate },
-      },
-    },
-  });
-  const playback = (resp.searchDateWithVideo as Record<string, unknown> | undefined)
-    ?.playback as Record<string, unknown> | undefined;
-  if (!playback) throw new Error("Video playback is not supported by this camera");
-  return (playback.search_results as RecordingSearchResult[] | undefined) ?? [];
-};
+  /** The internal user id playback search calls require. Cached; pass true to refetch. */
+  async getUserID(forceReload = false): Promise<string> {
+    if (this.#userId && !forceReload) return this.#userId;
 
-type RawQuery = (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    const resp = await this.#rawQuery({ getUserID: { system: { get_user_id: "null" } } });
+    const userId = (resp.getUserID as Record<string, unknown> | undefined)?.user_id;
+    if (typeof userId !== "string") {
+      throw new Error("Failed to retrieve user ID, device responded with no value.");
+    }
+    this.#userId = userId;
+    return userId;
+  }
 
-async function searchVideoWithUTC(
-  camera: Camera,
-  rawQuery: RawQuery,
-  startTime: number,
-  endTime: number,
-  startIndex: number,
-  endIndex: number,
-  retry: boolean,
-): Promise<RecordingSearchResult[]> {
-  try {
-    const userId = await camera.getUserID();
-    const resp = await rawQuery({
-      searchVideoWithUTC: {
+  /** Which dates (YYYYMMDD, UTC camera-local) have any recordings, in `startDate..endDate`. */
+  async getRecordingsList(
+    startDate = "20000101",
+    endDate = today(),
+  ): Promise<RecordingSearchResult[]> {
+    const resp = await this.#rawQuery({
+      searchDateWithVideo: {
         playback: {
-          search_video_with_utc: {
-            channel: 0,
-            end_time: endTime,
-            end_index: endIndex,
-            id: userId,
-            start_index: startIndex,
-            start_time: startTime,
-          },
+          search_year_utility: { channel: [0], end_date: endDate, start_date: startDate },
         },
       },
     });
-    const playback = (resp.searchVideoWithUTC as Record<string, unknown> | undefined)
+    const playback = (resp.searchDateWithVideo as Record<string, unknown> | undefined)
       ?.playback as Record<string, unknown> | undefined;
     if (!playback) throw new Error("Video playback is not supported by this camera");
-    return (playback.search_video_results as RecordingSearchResult[] | undefined) ?? [];
-  } catch (ex) {
-    if (!retry) {
-      // The cached user id can expire mid-session; refetch once and try again.
-      await camera.getUserID(true);
-      return searchVideoWithUTC(
-        camera,
-        rawQuery,
-        startTime,
-        endTime,
-        startIndex,
-        endIndex,
-        true,
+    return (playback.search_results as RecordingSearchResult[] | undefined) ?? [];
+  }
+
+  async #searchVideoWithUTC(
+    startTime: number,
+    endTime: number,
+    startIndex: number,
+    endIndex: number,
+    retry: boolean,
+  ): Promise<RecordingSearchResult[]> {
+    try {
+      const userId = await this.getUserID();
+      const resp = await this.#rawQuery({
+        searchVideoWithUTC: {
+          playback: {
+            search_video_with_utc: {
+              channel: 0,
+              end_time: endTime,
+              end_index: endIndex,
+              id: userId,
+              start_index: startIndex,
+              start_time: startTime,
+            },
+          },
+        },
+      });
+      const playback = (resp.searchVideoWithUTC as Record<string, unknown> | undefined)
+        ?.playback as Record<string, unknown> | undefined;
+      if (!playback) throw new Error("Video playback is not supported by this camera");
+      return (playback.search_video_results as RecordingSearchResult[] | undefined) ?? [];
+    } catch (ex) {
+      if (!retry) {
+        // The cached user id can expire mid-session; refetch once and try again.
+        await this.getUserID(true);
+        return this.#searchVideoWithUTC(startTime, endTime, startIndex, endIndex, true);
+      }
+      throw ex;
+    }
+  }
+
+  /** Recording segments between two unix timestamps (seconds). */
+  getRecordingsUTC(
+    startTime: number,
+    endTime: number,
+    startIndex = 0,
+    endIndex = DEFAULT_END_INDEX,
+  ): Promise<RecordingSearchResult[]> {
+    return this.#searchVideoWithUTC(startTime, endTime, startIndex, endIndex, false);
+  }
+
+  async #searchVideoOfDay(
+    date: string,
+    startIndex: number,
+    endIndex: number,
+    retry: boolean,
+  ): Promise<RecordingSearchResult[]> {
+    try {
+      const userId = await this.getUserID();
+      const resp = await this.#rawQuery({
+        searchVideoOfDay: {
+          playback: {
+            search_video_utility: {
+              channel: 0,
+              date,
+              end_index: endIndex,
+              id: userId,
+              start_index: startIndex,
+            },
+          },
+        },
+      });
+      const playback = (resp.searchVideoOfDay as Record<string, unknown> | undefined)
+        ?.playback as Record<string, unknown> | undefined;
+      if (!playback) throw new Error("Video playback is not supported by this camera");
+      return (playback.search_video_results as RecordingSearchResult[] | undefined) ?? [];
+    } catch (ex) {
+      if (!retry) {
+        await this.getUserID(true);
+        return this.#searchVideoOfDay(date, startIndex, endIndex, true);
+      }
+      throw ex;
+    }
+  }
+
+  /** Recording segments for a single date (YYYYMMDD). */
+  getRecordings(
+    date: string,
+    startIndex = 0,
+    endIndex = DEFAULT_END_INDEX,
+  ): Promise<RecordingSearchResult[]> {
+    return this.#searchVideoOfDay(date, startIndex, endIndex, false);
+  }
+}
+
+declare module "../smartcam/modules/camera.ts" {
+  interface Camera {
+    /** SD-card recording metadata search (dates/segments, not download/decrypt). */
+    readonly recordings: CameraRecordings;
+  }
+}
+
+const recordingsMap = new WeakMap<Camera, CameraRecordings>();
+
+Object.defineProperty(Camera.prototype, "recordings", {
+  configurable: true,
+  get(this: Camera): CameraRecordings {
+    let instance = recordingsMap.get(this);
+    if (!instance) {
+      instance = new CameraRecordings(
+        this.smartCamDevice.rawQuery.bind(this.smartCamDevice),
       );
+      recordingsMap.set(this, instance);
     }
-    throw ex;
-  }
-}
-
-Camera.prototype.getRecordingsUTC = function (
-  this: Camera,
-  startTime: number,
-  endTime: number,
-  startIndex = 0,
-  endIndex = DEFAULT_END_INDEX,
-): Promise<RecordingSearchResult[]> {
-  const rawQuery = this.smartCamDevice.rawQuery.bind(this.smartCamDevice);
-  return searchVideoWithUTC(
-    this,
-    rawQuery,
-    startTime,
-    endTime,
-    startIndex,
-    endIndex,
-    false,
-  );
-};
-
-async function searchVideoOfDay(
-  camera: Camera,
-  rawQuery: RawQuery,
-  date: string,
-  startIndex: number,
-  endIndex: number,
-  retry: boolean,
-): Promise<RecordingSearchResult[]> {
-  try {
-    const userId = await camera.getUserID();
-    const resp = await rawQuery({
-      searchVideoOfDay: {
-        playback: {
-          search_video_utility: {
-            channel: 0,
-            date,
-            end_index: endIndex,
-            id: userId,
-            start_index: startIndex,
-          },
-        },
-      },
-    });
-    const playback = (resp.searchVideoOfDay as Record<string, unknown> | undefined)
-      ?.playback as Record<string, unknown> | undefined;
-    if (!playback) throw new Error("Video playback is not supported by this camera");
-    return (playback.search_video_results as RecordingSearchResult[] | undefined) ?? [];
-  } catch (ex) {
-    if (!retry) {
-      await camera.getUserID(true);
-      return searchVideoOfDay(camera, rawQuery, date, startIndex, endIndex, true);
-    }
-    throw ex;
-  }
-}
-
-Camera.prototype.getRecordings = function (
-  this: Camera,
-  date: string,
-  startIndex = 0,
-  endIndex = DEFAULT_END_INDEX,
-): Promise<RecordingSearchResult[]> {
-  const rawQuery = this.smartCamDevice.rawQuery.bind(this.smartCamDevice);
-  return searchVideoOfDay(this, rawQuery, date, startIndex, endIndex, false);
-};
+    return instance;
+  },
+});

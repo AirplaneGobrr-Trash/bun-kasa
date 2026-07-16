@@ -57,11 +57,11 @@ export class CameraGroup {
 
   // ── Audio ─────────────────────────────────────────────────────────────────────
   async connectAudio(cloudPassword?: string): Promise<void> {
-    await Promise.all(this.#cams.map((c) => c.connectAudio(cloudPassword)));
+    await Promise.all(this.#cams.map((c) => c.speaker.connect(cloudPassword)));
   }
 
   disconnectAudio(): void {
-    for (const cam of this.#cams) cam.disconnectAudio();
+    for (const cam of this.#cams) cam.speaker.disconnect();
     this.cancelPreload();
   }
 
@@ -77,7 +77,7 @@ export class CameraGroup {
     const claimed: Camera[] = [];
     for (const cam of this.#cams) {
       try {
-        cam._beginGroupAudio();
+        cam.speaker._beginGroup();
         claimed.push(cam);
       } catch {
         // camera not ready for group audio (not connected / already busy) — skip it
@@ -85,7 +85,7 @@ export class CameraGroup {
     }
     this.#preloadClaimed = claimed;
     this.#pacer = new AudioPacer((tsData) => {
-      for (const cam of claimed) cam._writeTs(tsData);
+      for (const cam of claimed) cam.speaker._writeTs(tsData);
     });
     await this.#pacer.start();
   }
@@ -94,7 +94,7 @@ export class CameraGroup {
   cancelPreload(): void {
     this.#pacer?.stop();
     this.#pacer = null;
-    for (const cam of this.#preloadClaimed) cam._endGroupAudio();
+    for (const cam of this.#preloadClaimed) cam.speaker._endGroup();
     this.#preloadClaimed = [];
   }
 
@@ -110,7 +110,7 @@ export class CameraGroup {
     const ready: Camera[] = [];
     for (const cam of this.#cams) {
       try {
-        cam._beginGroupAudio();
+        cam.speaker._beginGroup();
         ready.push(cam);
       } catch {
         // camera not ready for group audio — skip it
@@ -118,13 +118,13 @@ export class CameraGroup {
     }
     if (ready.length === 0) throw new Error("No cameras available for audio");
     const pacer = new AudioPacer((tsData) => {
-      for (const cam of ready) cam._writeTs(tsData);
+      for (const cam of ready) cam.speaker._writeTs(tsData);
     });
     try {
       await pacer.play(source, volume, trailingMs);
     } finally {
       pacer.stop();
-      for (const cam of ready) cam._endGroupAudio();
+      for (const cam of ready) cam.speaker._endGroup();
     }
   }
 
@@ -170,7 +170,7 @@ export class CameraGroup {
     const ready: Camera[] = [];
     for (const cam of outputCams) {
       try {
-        cam._beginGroupAudio();
+        cam.speaker._beginGroup();
         ready.push(cam);
       } catch {
         // camera not ready for group audio — skip it
@@ -196,13 +196,13 @@ export class CameraGroup {
       `pan=${readyCams.length}c|${panTerms.join("|")}`,
     ].join(",");
 
-    const writers = readyCams.map((cam) => [(ts: Buffer) => cam._writeTs(ts)]);
+    const writers = readyCams.map((cam) => [(ts: Buffer) => cam.speaker._writeTs(ts)]);
     const pacer = new SurroundPacer(writers);
     try {
       await pacer.play(source, readyCams.length, audioFilter, trailingMs);
     } finally {
       pacer.stop();
-      for (const cam of ready) cam._endGroupAudio();
+      for (const cam of ready) cam.speaker._endGroup();
     }
   }
 
@@ -211,17 +211,17 @@ export class CameraGroup {
     return Promise.all(
       this.#cams.map(async (c) => ({
         host: c.device.host,
-        image: await c.getSnapshot(),
+        image: await c.snapshot.get(),
       })),
     );
   }
 
   // ── ONVIF events ──────────────────────────────────────────────────────────────
   startEvents(): void {
-    for (const cam of this.#cams) cam.startEvents();
+    for (const cam of this.#cams) cam.onvif.startEvents();
   }
 
   stopEvents(): void {
-    for (const cam of this.#cams) cam.stopEvents();
+    for (const cam of this.#cams) cam.onvif.stopEvents();
   }
 }

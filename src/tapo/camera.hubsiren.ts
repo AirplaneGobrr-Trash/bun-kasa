@@ -11,64 +11,70 @@ import { Camera } from "../smartcam/modules/camera.ts";
  * hub. Doesn't touch src/smartcam/modules/camera.ts.
  */
 
-declare module "../smartcam/modules/camera.ts" {
-  interface Camera {
-    setHubSirenStatus(on: boolean): Promise<Record<string, unknown>>;
-    getHubSirenStatus(): Promise<Record<string, unknown>>;
-    setHubSirenConfig(config: {
-      duration?: number;
-      sirenType?: string;
-      volume?: number;
-    }): Promise<Record<string, unknown>>;
-    getHubSirenConfig(): Promise<Record<string, unknown>>;
-    getHubSirenTypeList(): Promise<Record<string, unknown>>;
-    getHubStorage(): Promise<Record<string, unknown>>;
+type RawQuery = (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+
+export class CameraHubSiren {
+  readonly #rawQuery: RawQuery;
+
+  constructor(rawQuery: RawQuery) {
+    this.#rawQuery = rawQuery;
+  }
+
+  setStatus(on: boolean): Promise<Record<string, unknown>> {
+    return this.#rawQuery({ setSirenStatus: { siren: { status: on ? "on" : "off" } } });
+  }
+
+  getStatus(): Promise<Record<string, unknown>> {
+    return this.#rawQuery({ getSirenStatus: { siren: {} } });
+  }
+
+  setConfig(config: {
+    duration?: number;
+    sirenType?: string;
+    volume?: number;
+  }): Promise<Record<string, unknown>> {
+    const siren: Record<string, unknown> = {};
+    if (config.duration !== undefined) siren.duration = config.duration;
+    if (config.sirenType !== undefined) siren.siren_type = config.sirenType;
+    if (config.volume !== undefined) siren.volume = config.volume;
+
+    return this.#rawQuery({ setSirenConfig: { siren } });
+  }
+
+  getConfig(): Promise<Record<string, unknown>> {
+    return this.#rawQuery({ getSirenConfig: { siren: {} } });
+  }
+
+  getTypeList(): Promise<Record<string, unknown>> {
+    return this.#rawQuery({ getSirenTypeList: { siren: {} } });
+  }
+
+  getStorage(): Promise<Record<string, unknown>> {
+    return this.#rawQuery({
+      getHubStorage: { hub_manage: { name: "hub_storage_info" } },
+    });
   }
 }
 
-Camera.prototype.setHubSirenStatus = function (
-  this: Camera,
-  on: boolean,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({
-    setSirenStatus: { siren: { status: on ? "on" : "off" } },
-  });
-};
+declare module "../smartcam/modules/camera.ts" {
+  interface Camera {
+    /** Hub-level (H200) siren controls, distinct from the camera's own `siren` component. */
+    readonly hubSiren: CameraHubSiren;
+  }
+}
 
-Camera.prototype.getHubSirenStatus = function (
-  this: Camera,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({ getSirenStatus: { siren: {} } });
-};
+const hubSirenMap = new WeakMap<Camera, CameraHubSiren>();
 
-Camera.prototype.setHubSirenConfig = function (
-  this: Camera,
-  config: { duration?: number; sirenType?: string; volume?: number },
-): Promise<Record<string, unknown>> {
-  const siren: Record<string, unknown> = {};
-  if (config.duration !== undefined) siren.duration = config.duration;
-  if (config.sirenType !== undefined) siren.siren_type = config.sirenType;
-  if (config.volume !== undefined) siren.volume = config.volume;
-
-  return this.smartCamDevice.rawQuery({ setSirenConfig: { siren } });
-};
-
-Camera.prototype.getHubSirenConfig = function (
-  this: Camera,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({ getSirenConfig: { siren: {} } });
-};
-
-Camera.prototype.getHubSirenTypeList = function (
-  this: Camera,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({ getSirenTypeList: { siren: {} } });
-};
-
-Camera.prototype.getHubStorage = function (
-  this: Camera,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({
-    getHubStorage: { hub_manage: { name: "hub_storage_info" } },
-  });
-};
+Object.defineProperty(Camera.prototype, "hubSiren", {
+  configurable: true,
+  get(this: Camera): CameraHubSiren {
+    let instance = hubSirenMap.get(this);
+    if (!instance) {
+      instance = new CameraHubSiren(
+        this.smartCamDevice.rawQuery.bind(this.smartCamDevice),
+      );
+      hubSirenMap.set(this, instance);
+    }
+    return instance;
+  },
+});

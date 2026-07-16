@@ -19,13 +19,13 @@
  */
 
 export interface LoadPluginsOptions {
-  /** getOnvifDeviceInformation/getOnvifCapabilities/events/startEvents/stopEvents. */
+  /** camera.onvif: getDeviceInformation/getCapabilities/events/startEvents/stopEvents. */
   onvif?: boolean;
-  /** getSnapshot. */
+  /** camera.snapshot: get. */
   snapshot?: boolean;
-  /** probeStream. */
+  /** camera.video: probe. */
   video?: boolean;
-  /** connectAudio/playAudio/preloadAudio/disconnectAudio and CameraGroup's audio methods. */
+  /** camera.speaker: connect/play/preload/disconnect, and CameraGroup's audio methods. */
   speaker?: boolean;
 }
 

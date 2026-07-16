@@ -13,23 +13,6 @@ import { Camera } from "../smartcam/modules/camera.ts";
 export type DayNightMode = "on" | "off" | "auto";
 export type LightFrequencyMode = "auto" | "50" | "60";
 
-declare module "../smartcam/modules/camera.ts" {
-  interface Camera {
-    /** Whether lens distortion correction is enabled. */
-    getLensDistortionCorrection(): Promise<boolean>;
-    setLensDistortionCorrection(enable: boolean): Promise<Record<string, unknown>>;
-    /** Whether the image is flipped vertically (upside-down mounting). */
-    getImageFlipVertical(): Promise<boolean>;
-    setImageFlipVertical(enable: boolean): Promise<Record<string, unknown>>;
-    /** "on" (always IR night vision), "off" (always color), or "auto" (light-sensing). */
-    getDayNightMode(): Promise<DayNightMode>;
-    setDayNightMode(mode: DayNightMode): Promise<Record<string, unknown>>;
-    /** Mains flicker-avoidance frequency: "auto", "50" (Hz), or "60" (Hz). */
-    getLightFrequencyMode(): Promise<LightFrequencyMode>;
-    setLightFrequencyMode(mode: LightFrequencyMode): Promise<Record<string, unknown>>;
-  }
-}
-
 type RawQuery = (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 async function getImageSwitch(rawQuery: RawQuery, switchName: string): Promise<string> {
@@ -65,60 +48,76 @@ async function getImageCommon(rawQuery: RawQuery, field: string): Promise<string
   return value;
 }
 
-Camera.prototype.getLensDistortionCorrection = async function (
-  this: Camera,
-): Promise<boolean> {
-  const rawQuery = this.smartCamDevice.rawQuery.bind(this.smartCamDevice);
-  return (await getImageSwitch(rawQuery, "ldc")) === "on";
-};
+export class CameraImageTuning {
+  readonly #rawQuery: RawQuery;
 
-Camera.prototype.setLensDistortionCorrection = function (
-  this: Camera,
-  enable: boolean,
-): Promise<Record<string, unknown>> {
-  const rawQuery = this.smartCamDevice.rawQuery.bind(this.smartCamDevice);
-  return setImageSwitch(rawQuery, "ldc", enable ? "on" : "off");
-};
+  constructor(rawQuery: RawQuery) {
+    this.#rawQuery = rawQuery;
+  }
 
-Camera.prototype.getImageFlipVertical = async function (this: Camera): Promise<boolean> {
-  const rawQuery = this.smartCamDevice.rawQuery.bind(this.smartCamDevice);
-  return (await getImageSwitch(rawQuery, "flip_type")) === "center";
-};
+  /** Whether lens distortion correction is enabled. */
+  async getLensDistortionCorrection(): Promise<boolean> {
+    return (await getImageSwitch(this.#rawQuery, "ldc")) === "on";
+  }
 
-Camera.prototype.setImageFlipVertical = function (
-  this: Camera,
-  enable: boolean,
-): Promise<Record<string, unknown>> {
-  const rawQuery = this.smartCamDevice.rawQuery.bind(this.smartCamDevice);
-  return setImageSwitch(rawQuery, "flip_type", enable ? "center" : "off");
-};
+  setLensDistortionCorrection(enable: boolean): Promise<Record<string, unknown>> {
+    return setImageSwitch(this.#rawQuery, "ldc", enable ? "on" : "off");
+  }
 
-Camera.prototype.getDayNightMode = function (this: Camera): Promise<DayNightMode> {
-  const rawQuery = this.smartCamDevice.rawQuery.bind(this.smartCamDevice);
-  return getImageCommon(rawQuery, "inf_type") as Promise<DayNightMode>;
-};
+  /** Whether the image is flipped vertically (upside-down mounting). */
+  async getImageFlipVertical(): Promise<boolean> {
+    return (await getImageSwitch(this.#rawQuery, "flip_type")) === "center";
+  }
 
-Camera.prototype.setDayNightMode = function (
-  this: Camera,
-  mode: DayNightMode,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({
-    setDayNightModeConfig: { image: { common: { inf_type: mode } } },
-  });
-};
+  setImageFlipVertical(enable: boolean): Promise<Record<string, unknown>> {
+    return setImageSwitch(this.#rawQuery, "flip_type", enable ? "center" : "off");
+  }
 
-Camera.prototype.getLightFrequencyMode = function (
-  this: Camera,
-): Promise<LightFrequencyMode> {
-  const rawQuery = this.smartCamDevice.rawQuery.bind(this.smartCamDevice);
-  return getImageCommon(rawQuery, "light_freq_mode") as Promise<LightFrequencyMode>;
-};
+  /** "on" (always IR night vision), "off" (always color), or "auto" (light-sensing). */
+  getDayNightMode(): Promise<DayNightMode> {
+    return getImageCommon(this.#rawQuery, "inf_type") as Promise<DayNightMode>;
+  }
 
-Camera.prototype.setLightFrequencyMode = function (
-  this: Camera,
-  mode: LightFrequencyMode,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({
-    setLightFrequencyInfo: { image: { common: { light_freq_mode: mode } } },
-  });
-};
+  setDayNightMode(mode: DayNightMode): Promise<Record<string, unknown>> {
+    return this.#rawQuery({
+      setDayNightModeConfig: { image: { common: { inf_type: mode } } },
+    });
+  }
+
+  /** Mains flicker-avoidance frequency: "auto", "50" (Hz), or "60" (Hz). */
+  getLightFrequencyMode(): Promise<LightFrequencyMode> {
+    return getImageCommon(
+      this.#rawQuery,
+      "light_freq_mode",
+    ) as Promise<LightFrequencyMode>;
+  }
+
+  setLightFrequencyMode(mode: LightFrequencyMode): Promise<Record<string, unknown>> {
+    return this.#rawQuery({
+      setLightFrequencyInfo: { image: { common: { light_freq_mode: mode } } },
+    });
+  }
+}
+
+declare module "../smartcam/modules/camera.ts" {
+  interface Camera {
+    /** Image tuning: lens distortion correction, flip, day/night mode, light frequency. */
+    readonly imageTuning: CameraImageTuning;
+  }
+}
+
+const imageTuningMap = new WeakMap<Camera, CameraImageTuning>();
+
+Object.defineProperty(Camera.prototype, "imageTuning", {
+  configurable: true,
+  get(this: Camera): CameraImageTuning {
+    let instance = imageTuningMap.get(this);
+    if (!instance) {
+      instance = new CameraImageTuning(
+        this.smartCamDevice.rawQuery.bind(this.smartCamDevice),
+      );
+      imageTuningMap.set(this, instance);
+    }
+    return instance;
+  },
+});

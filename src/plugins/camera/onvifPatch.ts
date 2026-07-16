@@ -34,141 +34,135 @@ export interface CameraOnvifEvents {
 const CameraEventEmitter = makeEventEmitterClass<CameraOnvifEvents>();
 type CameraEventEmitter = InstanceType<typeof CameraEventEmitter>;
 
-const emitterMap = new WeakMap<Camera, CameraEventEmitter>();
-const pollMap = new WeakMap<Camera, { stop: () => void }>();
-
-function getEmitter(camera: Camera): CameraEventEmitter {
-  let emitter = emitterMap.get(camera);
-  if (!emitter) {
-    emitter = new CameraEventEmitter();
-    emitterMap.set(camera, emitter);
-  }
-  return emitter;
-}
-
-declare module "../../smartcam/modules/camera.ts" {
-  interface Camera {
-    /** Typed motion/person/tamper/event emitter, populated once startEvents() is called. */
-    readonly events: CameraEventEmitter;
-    /** Start polling ONVIF pull-point events (motion/person/tamper/etc). Idempotent. */
-    startEvents(
-      credentials?: Credentials,
-      options?: { onError?: (err: unknown) => void },
-    ): void;
-    /** Stop the poll loop started by startEvents(). */
-    stopEvents(): void;
-    /** Fetch manufacturer/model/firmware/serial over ONVIF `GetDeviceInformation`. */
-    getOnvifDeviceInformation(credentials?: Credentials): Promise<OnvifDeviceInformation>;
-    /** Discover the Media/Events/PTZ service endpoints ONVIF `GetCapabilities` reports. */
-    getOnvifCapabilities(credentials?: Credentials): Promise<OnvifCapabilities>;
-  }
-}
-
-Object.defineProperty(Camera.prototype, "events", {
-  configurable: true,
-  get(this: Camera): CameraEventEmitter {
-    return getEmitter(this);
-  },
-});
-
 const ONVIF_EVENTS_LEASE_SECONDS = 60;
 const ONVIF_EVENTS_POLL_INTERVAL_MS = 3000;
 const ONVIF_EVENTS_RENEW_MARGIN_SECONDS = 10;
 
-Camera.prototype.getOnvifDeviceInformation = async function (
-  this: Camera,
-  credentials?: Credentials,
-): Promise<OnvifDeviceInformation> {
-  const url = this.onvifUrl();
-  if (!url) throw new Error("Camera has no ONVIF endpoint (hub child or camera off)");
-  return onvif.getDeviceInformation(url, resolveLocalCredentials(credentials));
-};
+export class CameraOnvif {
+  readonly #camera: Camera;
+  readonly #emitter = new CameraEventEmitter();
+  #pollStop: (() => void) | null = null;
 
-Camera.prototype.getOnvifCapabilities = async function (
-  this: Camera,
-  credentials?: Credentials,
-): Promise<OnvifCapabilities> {
-  const url = this.onvifUrl();
-  if (!url) throw new Error("Camera has no ONVIF endpoint (hub child or camera off)");
-  return onvif.getCapabilities(url, resolveLocalCredentials(credentials));
-};
+  constructor(camera: Camera) {
+    this.#camera = camera;
+  }
 
-Camera.prototype.startEvents = function (
-  this: Camera,
-  credentials?: Credentials,
-  options?: { onError?: (err: unknown) => void },
-): void {
-  if (pollMap.has(this)) return;
+  /** Typed motion/person/tamper/event emitter, populated once startEvents() is called. */
+  get events(): CameraEventEmitter {
+    return this.#emitter;
+  }
 
-  const deviceUrl = this.onvifUrl();
-  if (!deviceUrl)
-    throw new Error("Camera has no ONVIF endpoint (hub child or camera off)");
+  /** Fetch manufacturer/model/firmware/serial over ONVIF `GetDeviceInformation`. */
+  async getDeviceInformation(credentials?: Credentials): Promise<OnvifDeviceInformation> {
+    const url = this.#camera.onvifUrl();
+    if (!url) throw new Error("Camera has no ONVIF endpoint (hub child or camera off)");
+    return onvif.getDeviceInformation(url, resolveLocalCredentials(credentials));
+  }
 
-  const wsseCredentials = resolveLocalCredentials(credentials);
-  const emitter = getEmitter(this);
-  const host = this.device.host;
+  /** Discover the Media/Events/PTZ service endpoints ONVIF `GetCapabilities` reports. */
+  async getCapabilities(credentials?: Credentials): Promise<OnvifCapabilities> {
+    const url = this.#camera.onvifUrl();
+    if (!url) throw new Error("Camera has no ONVIF endpoint (hub child or camera off)");
+    return onvif.getCapabilities(url, resolveLocalCredentials(credentials));
+  }
 
-  let stopped = false;
-  let subscriptionUrl: string | undefined;
-  let expiresAt = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  /** Start polling ONVIF pull-point events (motion/person/tamper/etc). Idempotent. */
+  startEvents(
+    credentials?: Credentials,
+    options?: { onError?: (err: unknown) => void },
+  ): void {
+    if (this.#pollStop) return;
 
-  const poll = async (): Promise<void> => {
-    if (stopped) return;
-    try {
-      if (!subscriptionUrl) {
-        // Some firmwares serve Events off the same base URL as the device service
-        // rather than a dedicated XAddr, so fall back to deviceUrl if undiscovered.
-        const capabilities = await onvif.getCapabilities(deviceUrl, wsseCredentials);
-        const eventsUrl = capabilities.eventsXAddr ?? deviceUrl;
-        subscriptionUrl = await onvif.createPullPointSubscription(
-          eventsUrl,
-          wsseCredentials,
-          ONVIF_EVENTS_LEASE_SECONDS,
-        );
-        expiresAt = Date.now() + ONVIF_EVENTS_LEASE_SECONDS * 1000;
-      }
+    const deviceUrl = this.#camera.onvifUrl();
+    if (!deviceUrl)
+      throw new Error("Camera has no ONVIF endpoint (hub child or camera off)");
 
-      if (Date.now() > expiresAt - ONVIF_EVENTS_RENEW_MARGIN_SECONDS * 1000) {
-        await onvif.renewSubscription(
-          subscriptionUrl,
-          wsseCredentials,
-          ONVIF_EVENTS_LEASE_SECONDS,
-        );
-        expiresAt = Date.now() + ONVIF_EVENTS_LEASE_SECONDS * 1000;
-      }
+    const wsseCredentials = resolveLocalCredentials(credentials);
+    const emitter = this.#emitter;
+    const host = this.#camera.device.host;
 
-      const notifications = await onvif.pullMessages(subscriptionUrl, wsseCredentials);
-      for (const notification of notifications) {
-        const { topic, values } = notification;
-        if ("IsMotion" in values) {
-          emitter.emit("motion", { host, active: values.IsMotion === "true" });
+    let stopped = false;
+    let subscriptionUrl: string | undefined;
+    let expiresAt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async (): Promise<void> => {
+      if (stopped) return;
+      try {
+        if (!subscriptionUrl) {
+          // Some firmwares serve Events off the same base URL as the device service
+          // rather than a dedicated XAddr, so fall back to deviceUrl if undiscovered.
+          const capabilities = await onvif.getCapabilities(deviceUrl, wsseCredentials);
+          const eventsUrl = capabilities.eventsXAddr ?? deviceUrl;
+          subscriptionUrl = await onvif.createPullPointSubscription(
+            eventsUrl,
+            wsseCredentials,
+            ONVIF_EVENTS_LEASE_SECONDS,
+          );
+          expiresAt = Date.now() + ONVIF_EVENTS_LEASE_SECONDS * 1000;
         }
-        if ("IsPeople" in values) {
-          emitter.emit("person", { host, active: values.IsPeople === "true" });
-        }
-        if ("IsTamper" in values) {
-          emitter.emit("tamper", { host, active: values.IsTamper === "true" });
-        }
-        emitter.emit("event", { host, topic, ...values });
-      }
-    } catch (ex) {
-      subscriptionUrl = undefined;
-      options?.onError?.(ex);
-    }
-    if (!stopped) timer = setTimeout(() => void poll(), ONVIF_EVENTS_POLL_INTERVAL_MS);
-  };
 
-  void poll();
-  pollMap.set(this, {
-    stop: () => {
+        if (Date.now() > expiresAt - ONVIF_EVENTS_RENEW_MARGIN_SECONDS * 1000) {
+          await onvif.renewSubscription(
+            subscriptionUrl,
+            wsseCredentials,
+            ONVIF_EVENTS_LEASE_SECONDS,
+          );
+          expiresAt = Date.now() + ONVIF_EVENTS_LEASE_SECONDS * 1000;
+        }
+
+        const notifications = await onvif.pullMessages(subscriptionUrl, wsseCredentials);
+        for (const notification of notifications) {
+          const { topic, values } = notification;
+          if ("IsMotion" in values) {
+            emitter.emit("motion", { host, active: values.IsMotion === "true" });
+          }
+          if ("IsPeople" in values) {
+            emitter.emit("person", { host, active: values.IsPeople === "true" });
+          }
+          if ("IsTamper" in values) {
+            emitter.emit("tamper", { host, active: values.IsTamper === "true" });
+          }
+          emitter.emit("event", { host, topic, ...values });
+        }
+      } catch (ex) {
+        subscriptionUrl = undefined;
+        options?.onError?.(ex);
+      }
+      if (!stopped) timer = setTimeout(() => void poll(), ONVIF_EVENTS_POLL_INTERVAL_MS);
+    };
+
+    void poll();
+    this.#pollStop = () => {
       stopped = true;
       if (timer) clearTimeout(timer);
-    },
-  });
-};
+    };
+  }
 
-Camera.prototype.stopEvents = function (this: Camera): void {
-  pollMap.get(this)?.stop();
-  pollMap.delete(this);
-};
+  /** Stop the poll loop started by startEvents(). */
+  stopEvents(): void {
+    this.#pollStop?.();
+    this.#pollStop = null;
+  }
+}
+
+declare module "../../smartcam/modules/camera.ts" {
+  interface Camera {
+    /** Real ONVIF support: device info/capabilities/events, layered on onvifUrl(). */
+    readonly onvif: CameraOnvif;
+  }
+}
+
+const onvifMap = new WeakMap<Camera, CameraOnvif>();
+
+Object.defineProperty(Camera.prototype, "onvif", {
+  configurable: true,
+  get(this: Camera): CameraOnvif {
+    let instance = onvifMap.get(this);
+    if (!instance) {
+      instance = new CameraOnvif(this);
+      onvifMap.set(this, instance);
+    }
+    return instance;
+  },
+});

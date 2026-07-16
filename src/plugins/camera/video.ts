@@ -16,76 +16,95 @@ export interface StreamProbeResult {
   raw: unknown;
 }
 
-declare module "../../smartcam/modules/camera.ts" {
-  interface Camera {
-    /**
-     * Probe the RTSP stream with ffprobe and report codec/resolution, or `undefined`
-     * if ffprobe isn't on PATH. Throws if ffprobe runs but can't connect/parse the stream.
-     */
-    probeStream(
-      credentials?: Credentials,
-      options?: { streamResolution?: StreamResolution },
-    ): Promise<StreamProbeResult | undefined>;
+export class CameraVideo {
+  readonly #camera: Camera;
+
+  constructor(camera: Camera) {
+    this.#camera = camera;
+  }
+
+  /**
+   * Probe the RTSP stream with ffprobe and report codec/resolution, or `undefined`
+   * if ffprobe isn't on PATH. Throws if ffprobe runs but can't connect/parse the stream.
+   */
+  async probe(
+    credentials?: Credentials,
+    options?: { streamResolution?: StreamResolution },
+  ): Promise<StreamProbeResult | undefined> {
+    const rtspUrl = this.#camera.streamRtspUrl(resolveLocalCredentials(credentials), {
+      streamResolution: options?.streamResolution ?? StreamResolution.HD,
+    });
+    if (!rtspUrl) {
+      throw new Error(
+        "video.probe requires local-account credentials and the camera to be on",
+      );
+    }
+
+    let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
+    try {
+      proc = Bun.spawn(
+        [
+          "ffprobe",
+          "-v",
+          "quiet",
+          "-rtsp_transport",
+          "tcp",
+          "-print_format",
+          "json",
+          "-show_streams",
+          "-select_streams",
+          "v:0",
+          rtspUrl,
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+    } catch {
+      return undefined; // ffprobe not installed / not on PATH
+    }
+
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (code !== 0) {
+      throw new Error(
+        `ffprobe exited with code ${code} probing ${this.#camera.device.host}: ${stderr.trim()}`,
+      );
+    }
+
+    const parsed = JSON.parse(stdout) as { streams?: Record<string, unknown>[] };
+    const stream = parsed.streams?.[0];
+    if (!stream)
+      throw new Error(`ffprobe returned no video stream for ${this.#camera.device.host}`);
+
+    return {
+      codec: stream.codec_name as string | undefined,
+      width: stream.width as number | undefined,
+      height: stream.height as number | undefined,
+      frameRate: stream.avg_frame_rate as string | undefined,
+      raw: stream,
+    };
   }
 }
 
-Camera.prototype.probeStream = async function (
-  this: Camera,
-  credentials?: Credentials,
-  options?: { streamResolution?: StreamResolution },
-): Promise<StreamProbeResult | undefined> {
-  const rtspUrl = this.streamRtspUrl(resolveLocalCredentials(credentials), {
-    streamResolution: options?.streamResolution ?? StreamResolution.HD,
-  });
-  if (!rtspUrl) {
-    throw new Error(
-      "probeStream requires local-account credentials and the camera to be on",
-    );
+declare module "../../smartcam/modules/camera.ts" {
+  interface Camera {
+    /** RTSP stream validation via ffprobe. */
+    readonly video: CameraVideo;
   }
+}
 
-  let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
-  try {
-    proc = Bun.spawn(
-      [
-        "ffprobe",
-        "-v",
-        "quiet",
-        "-rtsp_transport",
-        "tcp",
-        "-print_format",
-        "json",
-        "-show_streams",
-        "-select_streams",
-        "v:0",
-        rtspUrl,
-      ],
-      { stdout: "pipe", stderr: "pipe" },
-    );
-  } catch {
-    return undefined; // ffprobe not installed / not on PATH
-  }
+const videoMap = new WeakMap<Camera, CameraVideo>();
 
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(
-      `ffprobe exited with code ${code} probing ${this.device.host}: ${stderr.trim()}`,
-    );
-  }
-
-  const parsed = JSON.parse(stdout) as { streams?: Record<string, unknown>[] };
-  const stream = parsed.streams?.[0];
-  if (!stream)
-    throw new Error(`ffprobe returned no video stream for ${this.device.host}`);
-
-  return {
-    codec: stream.codec_name as string | undefined,
-    width: stream.width as number | undefined,
-    height: stream.height as number | undefined,
-    frameRate: stream.avg_frame_rate as string | undefined,
-    raw: stream,
-  };
-};
+Object.defineProperty(Camera.prototype, "video", {
+  configurable: true,
+  get(this: Camera): CameraVideo {
+    let instance = videoMap.get(this);
+    if (!instance) {
+      instance = new CameraVideo(this);
+      videoMap.set(this, instance);
+    }
+    return instance;
+  },
+});

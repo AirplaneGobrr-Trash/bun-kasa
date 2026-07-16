@@ -12,50 +12,65 @@ import { Camera } from "../smartcam/modules/camera.ts";
  * src/smartcam/modules/camera.ts.
  */
 
-declare module "../smartcam/modules/camera.ts" {
-  interface Camera {
-    /** Info about the most recent alarm-event trigger on channel 1. */
-    getLastAlarmInfo(): Promise<Record<string, unknown>>;
-    /** Manually trigger the alarm-event pipeline (recording/notification), not the siren. */
-    startManualAlarm(): Promise<Record<string, unknown>>;
-    stopManualAlarm(): Promise<Record<string, unknown>>;
-    /** Toggle HDR on the main video stream. */
-    setHDR(enable: boolean): Promise<Record<string, unknown>>;
+type RawQuery = (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+
+export class CameraAlarmEvents {
+  readonly #rawQuery: RawQuery;
+
+  constructor(rawQuery: RawQuery) {
+    this.#rawQuery = rawQuery;
+  }
+
+  /** Info about the most recent alarm-event trigger on channel 1. */
+  async getLastAlarmInfo(): Promise<Record<string, unknown>> {
+    const resp = await this.#rawQuery({
+      getLastAlarmInfo: { msg_alarm: { name: ["chn1_msg_alarm_info"] } },
+    });
+    const msgAlarm = (resp.getLastAlarmInfo as Record<string, unknown> | undefined)
+      ?.msg_alarm as Record<string, unknown> | undefined;
+    return (msgAlarm?.chn1_msg_alarm_info as Record<string, unknown> | undefined) ?? {};
+  }
+
+  /** Manually trigger the alarm-event pipeline (recording/notification), not the siren. */
+  startManualAlarm(): Promise<Record<string, unknown>> {
+    return this.#rawQuery({
+      do: { msg_alarm: { manual_msg_alarm: { action: "start" } } },
+    });
+  }
+
+  stopManualAlarm(): Promise<Record<string, unknown>> {
+    return this.#rawQuery({
+      do: { msg_alarm: { manual_msg_alarm: { action: "stop" } } },
+    });
+  }
+
+  /** Toggle HDR on the main video stream. */
+  setHDR(enable: boolean): Promise<Record<string, unknown>> {
+    return this.#rawQuery({
+      setHDR: { video: { set_hdr: { hdr: enable ? 1 : 0, secname: "main" } } },
+    });
   }
 }
 
-Camera.prototype.getLastAlarmInfo = async function (
-  this: Camera,
-): Promise<Record<string, unknown>> {
-  const resp = await this.smartCamDevice.rawQuery({
-    getLastAlarmInfo: { msg_alarm: { name: ["chn1_msg_alarm_info"] } },
-  });
-  const msgAlarm = (resp.getLastAlarmInfo as Record<string, unknown> | undefined)
-    ?.msg_alarm as Record<string, unknown> | undefined;
-  return (msgAlarm?.chn1_msg_alarm_info as Record<string, unknown> | undefined) ?? {};
-};
+declare module "../smartcam/modules/camera.ts" {
+  interface Camera {
+    /** Alarm-event pipeline (msg_alarm trigger/recording), plus HDR toggle. */
+    readonly alarmEvents: CameraAlarmEvents;
+  }
+}
 
-Camera.prototype.startManualAlarm = function (
-  this: Camera,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({
-    do: { msg_alarm: { manual_msg_alarm: { action: "start" } } },
-  });
-};
+const alarmEventsMap = new WeakMap<Camera, CameraAlarmEvents>();
 
-Camera.prototype.stopManualAlarm = function (
-  this: Camera,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({
-    do: { msg_alarm: { manual_msg_alarm: { action: "stop" } } },
-  });
-};
-
-Camera.prototype.setHDR = function (
-  this: Camera,
-  enable: boolean,
-): Promise<Record<string, unknown>> {
-  return this.smartCamDevice.rawQuery({
-    setHDR: { video: { set_hdr: { hdr: enable ? 1 : 0, secname: "main" } } },
-  });
-};
+Object.defineProperty(Camera.prototype, "alarmEvents", {
+  configurable: true,
+  get(this: Camera): CameraAlarmEvents {
+    let instance = alarmEventsMap.get(this);
+    if (!instance) {
+      instance = new CameraAlarmEvents(
+        this.smartCamDevice.rawQuery.bind(this.smartCamDevice),
+      );
+      alarmEventsMap.set(this, instance);
+    }
+    return instance;
+  },
+});
