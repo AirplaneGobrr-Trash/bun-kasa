@@ -1,6 +1,6 @@
 {
   "name": "bun-kasa",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript port of python-kasa for controlling TP-Link Kasa/Tapo smart home devices, built for Bun.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -24,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "build": "tsup",
+    "build": "tsup && bun run build:types",
+    "build:types": "tsc -p tsconfig.build.json",
     "test": "bun test"
   },
   "devDependencies": {

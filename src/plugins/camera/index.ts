@@ -18,6 +18,15 @@
  * calling a method you opted out of is a type-safe compile but a runtime TypeError.
  */
 
+// Re-exported type-only so each capability's `declare module` Camera augmentation
+// reaches any consumer's type graph. The runtime loader below still dynamic-imports
+// these lazily — `export type` is fully erased at build time, so it has no effect on
+// that code-splitting.
+export type { CameraOnvif } from "./onvifPatch.ts";
+export type { CameraSnapshot } from "./snapshot.ts";
+export type { CameraSpeaker } from "./speaker.ts";
+export type { CameraVideo } from "./video.ts";
+
 export interface LoadPluginsOptions {
   /** camera.onvif: getDeviceInformation/getCapabilities/events/startEvents/stopEvents. */
   onvif?: boolean;

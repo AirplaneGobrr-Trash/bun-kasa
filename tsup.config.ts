@@ -6,11 +6,11 @@ export default defineConfig({
     "plugins/index": "src/plugins/index.ts",
   },
   format: ["esm", "cjs"],
-  dts: true,
+  dts: false,
   platform: "node",
   target: "esnext",
   sourcemap: true,
   clean: true,
-  splitting: false,
+  splitting: true,
   skipNodeModulesBundle: true,
 });
